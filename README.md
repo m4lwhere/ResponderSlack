@@ -1,6 +1,7 @@
 # ResponderSlack
 
 Send a Slack webhook when new Responder hashes are gathered.
+![Example Webhook](ResponderSlack_Example.png)
 
 ## Description
 
