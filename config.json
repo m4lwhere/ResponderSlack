@@ -1,0 +1,6 @@
+{
+    "ResponderDB":"/usr/share/responder/Responder.db",
+    "webhookURL":"replaceMe",
+    "sleepTime":60,
+    "sendHash":true
+}
