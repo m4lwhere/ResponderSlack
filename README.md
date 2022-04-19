@@ -13,6 +13,7 @@ This project allows pentesters to automatically receive a Slack webhook whenever
 ### Dependencies
 
 * Responder (https://github.com/lgandx/Responder)
+* Configured Slack App and webhook (https://slack.com/help/articles/115005265063-Incoming-webhooks-for-Slack)
 
 ## Installing
 
