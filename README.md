@@ -28,7 +28,7 @@ vim config.json
 * Modify `sendHash` if notification only, and not to send the hash. By default, the full hash will be sent via webhook.
 
 ## Executing program
-By default, the program will check every 60 seconds if a new hash was added to the database. This can be modified in the `config.json` file.
+By default, the program will check every 60 seconds if a new hash was added to the database. This can be modified in the `config.json` file. Run the program in either a separate tmux pane or in the background.
 ```
 python3 ./responderSlack.py
 ```
@@ -37,7 +37,7 @@ python3 ./responderSlack.py
 
 Contributors names and contact info
 
-[m4lwhere](https://m4lwhere.org) 
+* [m4lwhere](https://m4lwhere.org) 
 
 ## Version History
 
