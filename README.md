@@ -14,6 +14,7 @@ This project allows pentesters to automatically receive a Slack webhook whenever
 
 * Responder (https://github.com/lgandx/Responder)
 * Configured Slack App and webhook (https://slack.com/help/articles/115005265063-Incoming-webhooks-for-Slack)
+* If utilizing the `sendCsv.py` utility, ensure the Slack app has the correct permissions set (https://api.slack.com/messaging/files/setup)
 
 ## Installing
 

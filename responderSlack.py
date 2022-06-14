@@ -4,8 +4,8 @@ import requests, sqlite3, json, datetime
 def sendWebhook(hookPayload):
     r = requests.post(url=webhook, headers={'Content-Type': 'application/json'}, data=json.dumps(hookPayload))
 
-def DbConnect():
-    cursor = sqlite3.connect(respDB)
+def DbConnect(dbFile):
+    cursor = sqlite3.connect(dbFile)
     return cursor
 
 def checkNewHash(cursor, lastTime):
@@ -14,6 +14,16 @@ def checkNewHash(cursor, lastTime):
     Output = []
     # Store the results in a list of lists to reference later
     for row in res.fetchall():
+        # Check if we're discarding duplicates
+        if discardDupes:
+            print("yep try to drop dupes")
+            userNew = row[0]
+            print(f"userNew is {userNew}")
+            checkPrevHash = cursor.execute(f"SELECT user,client FROM Responder WHERE timestamp < '{lastTime}'")
+            for bleh in checkPrevHash:
+                print(f"bleh is {bleh[0]}")
+                if bleh[0] == userNew:
+                    return False
         Output.append([row[0], row[1], row[2], row[3]])
     return Output
 
@@ -43,19 +53,21 @@ def sendHash():
         return False
 
 def loadConfig():
-    global hookPayload, respDB, webhook, sleepTime, retrieveHash
-
+    global hookPayload, respDB, webhook, sleepTime, retrieveHash, discardDupes, botToken
+    
     # This file is the base of the webhook and used to format the message
     with open("./hookBase.json", "r") as hookBase:
         hookPayload = json.loads(hookBase.read())
-
+    
     with open("./config.json", "r") as configFile:
         config = json.loads(configFile.read())
-
+    
     respDB = config["ResponderDB"]
     webhook = config["webhookURL"]
     sleepTime = config["sleepTime"]
     retrieveHash = config["sendHash"]
+    discardDupes = config["discardDupes"]
+    botToken = config["botToken"]
     if webhook == "replaceMe":
         raise ValueError("Must add webhook URL in config.json!")
 
@@ -63,7 +75,7 @@ def main():
     global cursor, lastTime
 
     loadConfig()
-    cursor = DbConnect()
+    cursor = DbConnect(respDB)
     lastTime = datetime.datetime.utcnow()
 
     while True:

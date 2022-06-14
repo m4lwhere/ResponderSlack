@@ -2,5 +2,8 @@
     "ResponderDB":"/usr/share/responder/Responder.db",
     "webhookURL":"replaceMe",
     "sleepTime":60,
-    "sendHash":true
+    "sendHash":true,
+    "discardDupes":true,
+    "botToken":"replaceMe",
+    "channelID":"replaceMe"
 }
