@@ -5,6 +5,14 @@ import requests, sqlite3, json, datetime, logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def getTimestamp():
+    """Get formatted timestamp for console output."""
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+def printWithTimestamp(message):
+    """Print message to console with timestamp."""
+    print(f"[{getTimestamp()}] {message}")
+
 def sendWebhook(hookPayload):
     r = requests.post(url=webhook, headers={'Content-Type': 'application/json'}, data=json.dumps(hookPayload))
 
@@ -89,16 +97,14 @@ def checkNewHash(cursor, lastTime):
         for row in res.fetchall():
             # Check if we're discarding duplicates
             if discardDupes:
-                print("yep try to drop dupes")
                 userNew = row[0]
-                print(f"userNew is {userNew}")
                 checkPrevHash = executeQuery(cursor, f"SELECT user,client FROM Responder WHERE timestamp < '{lastTime}'")
                 if checkPrevHash is None:
                     logger.warning("Failed to check for duplicate hashes, skipping duplicate check")
                 else:
-                    for bleh in checkPrevHash:
-                        print(f"bleh is {bleh[0]}")
-                        if bleh[0] == userNew:
+                    for prevRow in checkPrevHash:
+                        if prevRow[0] == userNew:
+                            printWithTimestamp(f"Duplicate found: {userNew} - skipping")
                             return False
             Output.append([row[0], row[1], row[2], row[3]])
         return Output
@@ -125,22 +131,47 @@ def sendHash():
             if not retrieveHash:
                 i[3] = "Check local Responder logs for hash"
             hookPayload["blocks"][3]["text"]["text"] = f"```{i[3]}```"
+
+            # Print to console and send webhook
+            printWithTimestamp(f"New hash captured - User: {i[0]}, Type: {i[1]}, IP: {i[2]}")
             sendWebhook(hookPayload)
         return True
     else:
-        # print("Nope, nothing. Sorry.")
         return False
+
+def sendStartupNotification():
+    """Send a webhook notification that ResponderSlack is starting."""
+    startupPayload = {
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🟢 ResponderSlack Started"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"ResponderSlack is now listening for new hashes.\n*Started at:* {getTimestamp()}"
+                }
+            }
+        ]
+    }
+    sendWebhook(startupPayload)
+    printWithTimestamp("ResponderSlack started - Listening for new hashes...")
 
 def loadConfig():
     global hookPayload, respDB, webhook, sleepTime, retrieveHash, discardDupes, botToken
-    
+
     # This file is the base of the webhook and used to format the message
     with open("./hookBase.json", "r") as hookBase:
         hookPayload = json.loads(hookBase.read())
-    
+
     with open("./config.json", "r") as configFile:
         config = json.loads(configFile.read())
-    
+
     respDB = config["ResponderDB"]
     webhook = config["webhookURL"]
     sleepTime = config["sleepTime"]
@@ -156,6 +187,9 @@ def main():
     loadConfig()
     cursor = DbConnect(respDB)
     lastTime = datetime.datetime.utcnow()
+
+    # Send startup notification
+    sendStartupNotification()
 
     while True:
         checkHash = sendHash()
