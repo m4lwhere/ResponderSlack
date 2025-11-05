@@ -1,31 +1,110 @@
 from time import sleep
-import requests, sqlite3, json, datetime
+import requests, sqlite3, json, datetime, logging
+
+# Configure logging for database operations
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def sendWebhook(hookPayload):
     r = requests.post(url=webhook, headers={'Content-Type': 'application/json'}, data=json.dumps(hookPayload))
 
 def DbConnect(dbFile):
-    cursor = sqlite3.connect(dbFile)
-    return cursor
+    """
+    Connect to SQLite database with concurrency-safe settings.
+
+    Enables WAL mode for concurrent read/write access and sets timeouts
+    to prevent indefinite blocking on database locks.
+    """
+    try:
+        # Connect with 30-second timeout to prevent infinite waits
+        conn = sqlite3.connect(dbFile, timeout=30.0)
+
+        # Enable WAL (Write-Ahead Logging) mode for concurrent access
+        # This allows readers and writers to operate without blocking each other
+        conn.execute("PRAGMA journal_mode=WAL;")
+
+        # Set busy timeout to 30 seconds (30000 ms)
+        # SQLite will automatically retry for up to 30 seconds if database is locked
+        conn.execute("PRAGMA busy_timeout=30000;")
+
+        logger.info(f"Database connection established to {dbFile} with WAL mode enabled")
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"Failed to connect to database {dbFile}: {e}")
+        raise
+
+def executeQuery(cursor, query, retries=3, delay=2):
+    """
+    Execute a database query with retry logic for handling locks.
+
+    Args:
+        cursor: Database cursor/connection object
+        query: SQL query string to execute
+        retries: Number of retry attempts on lock errors (default: 3)
+        delay: Delay in seconds between retries (default: 2)
+
+    Returns:
+        Query result object or None on failure
+
+    Raises:
+        sqlite3.Error: If query fails after all retries
+    """
+    for attempt in range(retries):
+        try:
+            result = cursor.execute(query)
+            return result
+        except sqlite3.OperationalError as e:
+            # Check if it's a database lock error
+            if "locked" in str(e).lower() and attempt < retries - 1:
+                logger.warning(f"Database locked, retry {attempt + 1}/{retries} in {delay}s: {e}")
+                sleep(delay)
+            else:
+                logger.error(f"Database operational error after {attempt + 1} attempts: {e}")
+                raise
+        except sqlite3.DatabaseError as e:
+            logger.error(f"Database error executing query: {e}")
+            raise
+    return None
 
 def checkNewHash(cursor, lastTime):
-    # Search for any hash in the db newer than the lastTime 
-    res = cursor.execute(f"SELECT user,type,client,fullhash FROM Responder WHERE timestamp > '{lastTime}'")
-    Output = []
-    # Store the results in a list of lists to reference later
-    for row in res.fetchall():
-        # Check if we're discarding duplicates
-        if discardDupes:
-            print("yep try to drop dupes")
-            userNew = row[0]
-            print(f"userNew is {userNew}")
-            checkPrevHash = cursor.execute(f"SELECT user,client FROM Responder WHERE timestamp < '{lastTime}'")
-            for bleh in checkPrevHash:
-                print(f"bleh is {bleh[0]}")
-                if bleh[0] == userNew:
-                    return False
-        Output.append([row[0], row[1], row[2], row[3]])
-    return Output
+    """
+    Check for new hashes in the database since lastTime.
+
+    Args:
+        cursor: Database connection object
+        lastTime: Timestamp to check for new entries after
+
+    Returns:
+        List of new hash entries or empty list if none found
+    """
+    try:
+        # Search for any hash in the db newer than the lastTime
+        res = executeQuery(cursor, f"SELECT user,type,client,fullhash FROM Responder WHERE timestamp > '{lastTime}'")
+        if res is None:
+            logger.error("Failed to query new hashes from database")
+            return []
+
+        Output = []
+        # Store the results in a list of lists to reference later
+        for row in res.fetchall():
+            # Check if we're discarding duplicates
+            if discardDupes:
+                print("yep try to drop dupes")
+                userNew = row[0]
+                print(f"userNew is {userNew}")
+                checkPrevHash = executeQuery(cursor, f"SELECT user,client FROM Responder WHERE timestamp < '{lastTime}'")
+                if checkPrevHash is None:
+                    logger.warning("Failed to check for duplicate hashes, skipping duplicate check")
+                else:
+                    for bleh in checkPrevHash:
+                        print(f"bleh is {bleh[0]}")
+                        if bleh[0] == userNew:
+                            return False
+            Output.append([row[0], row[1], row[2], row[3]])
+        return Output
+    except sqlite3.Error as e:
+        logger.error(f"Database error in checkNewHash: {e}")
+        return []
 
 def sendHash():
     global lastTime, hookPayload

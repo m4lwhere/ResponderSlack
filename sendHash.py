@@ -1,7 +1,10 @@
 import requests, sqlite3, json, slack_sdk, logging, os, csv
-from responderSlack import DbConnect
+from responderSlack import DbConnect, executeQuery
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 def loadConfig():
     global respDB, channelID, botToken
@@ -35,32 +38,92 @@ def sendFileWebhook(fileName):
         logger.error("Error uploading file: {}".format(e))
 
 def buildCsv():
-    res = cursor.execute(f"SELECT user,type,client,fullhash FROM Responder")
-    output = []
-    header = ['user','type','client','fullhash']
-    for row in res.fetchall():
-        output.append([row[0],row[1],row[2],row[3]])
-    print(output)
-    with open('hashes.csv', 'w', newline='') as csvFile:
-        writer = csv.writer(csvFile)
-        writer.writerow(header)
-        writer.writerows(output)
+    """
+    Build a CSV file with all hashes from the database.
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        res = executeQuery(cursor, f"SELECT user,type,client,fullhash FROM Responder")
+        if res is None:
+            logger.error("Failed to query hashes for CSV export")
+            return False
+
+        output = []
+        header = ['user','type','client','fullhash']
+        for row in res.fetchall():
+            output.append([row[0],row[1],row[2],row[3]])
+        print(output)
+
+        with open('hashes.csv', 'w', newline='') as csvFile:
+            writer = csv.writer(csvFile)
+            writer.writerow(header)
+            writer.writerows(output)
+
+        logger.info(f"Successfully exported {len(output)} hashes to hashes.csv")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Database error in buildCsv: {e}")
+        return False
+    except IOError as e:
+        logger.error(f"File I/O error in buildCsv: {e}")
+        return False
 
 def buildFile():
-    res = cursor.execute(f"SELECT fullhash FROM Responder")
-    with open('hashes.txt', 'w') as hashFile:
-        for row in res.fetchall():
-            hashFile.writelines(f"{row[0]}\n")
+    """
+    Build a text file with all hashes from the database.
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        res = executeQuery(cursor, f"SELECT fullhash FROM Responder")
+        if res is None:
+            logger.error("Failed to query hashes for text file export")
+            return False
+
+        hash_count = 0
+        with open('hashes.txt', 'w') as hashFile:
+            for row in res.fetchall():
+                hashFile.writelines(f"{row[0]}\n")
+                hash_count += 1
+
+        logger.info(f"Successfully exported {hash_count} hashes to hashes.txt")
+        return True
+    except sqlite3.Error as e:
+        logger.error(f"Database error in buildFile: {e}")
+        return False
+    except IOError as e:
+        logger.error(f"File I/O error in buildFile: {e}")
+        return False
 
 
 def main():
+    """
+    Main function to export hashes and send to Slack.
+    Includes proper error handling and connection cleanup.
+    """
     global cursor
 
-    loadConfig()
-    cursor = DbConnect(respDB)
-    # buildCsv()
-    buildFile()
-    sendFileWebhook("hashes.txt")
+    try:
+        loadConfig()
+        cursor = DbConnect(respDB)
+
+        # buildCsv()  # Uncomment to also export CSV format
+        if buildFile():
+            sendFileWebhook("hashes.txt")
+        else:
+            logger.error("Failed to build hash file, skipping webhook upload")
+
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        raise
+    finally:
+        # Ensure database connection is properly closed
+        if cursor:
+            cursor.close()
+            logger.info("Database connection closed")
 
 
 
