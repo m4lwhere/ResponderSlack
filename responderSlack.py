@@ -186,7 +186,7 @@ def main():
 
     loadConfig()
     cursor = DbConnect(respDB)
-    lastTime = datetime.datetime.utcnow()
+    lastTime = datetime.datetime.now(datetime.UTC)
 
     # Send startup notification
     sendStartupNotification()
@@ -194,7 +194,7 @@ def main():
     while True:
         checkHash = sendHash()
         if checkHash:
-            lastTime = datetime.datetime.utcnow()
+            lastTime = datetime.datetime.now(datetime.UTC)
         sleep(sleepTime)
 
 if __name__ == "__main__":
