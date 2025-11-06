@@ -1,5 +1,5 @@
 from time import sleep
-import requests, sqlite3, json, datetime, logging
+import requests, sqlite3, json, datetime, logging, socket
 
 # Configure logging for database operations
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -141,6 +141,7 @@ def sendHash():
 
 def sendStartupNotification():
     """Send a webhook notification that ResponderSlack is starting."""
+    hostname = socket.gethostname()
     startupPayload = {
         "blocks": [
             {
@@ -154,13 +155,13 @@ def sendStartupNotification():
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"ResponderSlack is now listening for new hashes.\n*Started at:* {getTimestamp()}"
+                    "text": f"ResponderSlack is now listening for new hashes.\n*Hostname:* {hostname}\n*Started at:* {getTimestamp()}"
                 }
             }
         ]
     }
     sendWebhook(startupPayload)
-    printWithTimestamp("ResponderSlack started - Listening for new hashes...")
+    printWithTimestamp(f"ResponderSlack started on {hostname} - Listening for new hashes...")
 
 def loadConfig():
     global hookPayload, respDB, webhook, sleepTime, retrieveHash, discardDupes, botToken
